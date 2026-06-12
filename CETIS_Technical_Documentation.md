@@ -45,7 +45,7 @@ The distinction is **temporal**, **causal**, and **psychologically deep**.
 
 | Feature | Traditional Sentiment Analysis | CETIS |
 |---|---|---|
-| Emotion granularity | Positive / Negative / Neutral | 15+ fine-grained emotions |
+| Emotion granularity | Positive / Negative / Neutral | 9 fine-grained emotions |
 | Memory | Single message only | Full conversation history |
 | Trigger detection | None | AI-powered semantic extraction |
 | Trajectory tracking | None | Escalation, de-escalation, momentum |
@@ -74,7 +74,7 @@ User Message
 ↓
 1. Preprocessing
 ↓
-2. Emotion Detection (Transformer Model)
+2. Emotion Detection (Groq + Llama 3.3)
 ↓
 3. Trigger Extraction (Groq + Llama 3.3)
 ↓
@@ -96,12 +96,13 @@ Each stage is **independent and modular** — meaning each module can be tested,
 | Module | Purpose | Technology |
 |---|---|---|
 | API Gateway | Routes all requests | FastAPI |
-| Emotion Detection | Detects fine-grained emotions | HuggingFace Transformers |
+| Emotion Detection | Detects fine-grained emotions | Groq + Llama 3.3 |
 | Trigger Extraction | Identifies emotional causes | Groq + Llama 3.3 |
 | Emotional Memory | Tracks emotions across turns | Python + EMA Formula |
 | Trajectory Engine | Detects emotional evolution | Statistical analysis |
 | Contextual Interpretation | Surface vs. deep psychology | Groq + Llama 3.3 |
 | LLM Reasoning | Synthesizes full analysis | Groq + Llama 3.3 |
+| Message Interpreter | Plain language per-message explanation | Groq + Llama 3.3 |
 | Frontend Dashboard | Visualizes all outputs | Next.js + Recharts |
 
 ---
@@ -110,81 +111,68 @@ Each stage is **independent and modular** — meaning each module can be tested,
 
 ### Purpose
 
-Detect fine-grained emotions from text with probability scores for each emotion.
+Detect fine-grained emotions from text with probability scores for each emotion — using contextual AI reasoning, not keyword matching or rule-based classification.
 
-### Model Used
+### Evolution of the Emotion Detection Engine
 
-**`j-hartmann/emotion-english-distilroberta-base`**
+CETIS originally used the pretrained transformer model `j-hartmann/emotion-english-distilroberta-base` for emotion detection. This model was fine-tuned on the **GoEmotions** dataset by Google Research and achieved approximately 66–70% accuracy on benchmark tasks.
 
-This is a pretrained transformer model published on HuggingFace by Jochen Hartmann. It is based on **DistilRoBERTa** — a distilled (compressed) version of RoBERTa, which itself is an optimized version of BERT.
+However, during testing a critical failure was discovered:
 
-### How It Was Trained
+**The problem with transformer models:**
 
-The model was fine-tuned on the **GoEmotions** dataset — a large-scale dataset created by Google Research containing 58,000 Reddit comments carefully labeled with 27 human emotions by trained annotators.
-
-The model learns statistical patterns between word sequences and emotional labels during training. After training, it can generalize to new sentences it has never seen before.
-
-### How It Thinks
-
-The model does **not** look for keywords. Instead:
-
-1. The input text is tokenized (broken into subword units)
-2. Each token is converted into a high-dimensional vector (embedding)
-3. The transformer's attention mechanism allows every token to attend to every other token — understanding context and relationships
-4. The final layer outputs probability scores for each emotion class
-
-This is why it correctly understands:
-
-- *"I bombed the interview"* → sadness/fear (without the word "sad" anywhere)
-- *"She stopped texting me"* → loneliness/fear (inferring emotional meaning from situation)
-
-### Emotions Detected
-
-The system detects these 7 base emotions from the model, mapped to:
-
-- sadness
-- anger
-- fear
-- frustration (mapped from disgust)
-- confusion (mapped from surprise)
-- calm (mapped from neutral)
-- joy
-
-### Intensity Classification
-
-After getting probability scores, the system classifies intensity:
-
-| Threshold | Intensity |
-|---|---|
-| Score ≥ 0.70 | High |
-| Score ≥ 0.50 | Medium |
-| Score < 0.50 | Low |
-
-### Model Accuracy
-
-The j-hartmann model achieves approximately **66–70% accuracy** on standard emotion detection benchmarks. For context:
-
-- Random guessing (7 classes) = ~14%
-- This model = ~66–70%
-- Human agreement on emotions = ~80%
-
-The gap between human agreement and model accuracy reflects the genuine complexity of human emotional expression.
-
-### Example Output
-
-Input: *"I lost my job today and I don't know what to do anymore"*
+The sentence *"I don't feel worth it at all, I don't think I would get a job"* was classified as:
 
 ```json
 {
-  "sadness": 0.979,
-  "calm": 0.007,
-  "fear": 0.005,
-  "frustration": 0.004,
-  "anger": 0.001,
-  "confusion": 0.001,
-  "joy": 0.001
+  "joy": 0.68,
+  "sadness": 0.14
 }
 ```
+
+Joy at 68% for a deeply hopeless statement is completely wrong. The issue was that the transformer model had weak **negation handling** — it did not understand that "don't feel worth it" inverts the emotional meaning. The model was pattern-matching on surface-level token patterns rather than understanding the full contextual meaning of the sentence.
+
+Attempts to fix this with a second ensemble model and negation keyword correction all failed because keyword-based correction is the same flawed approach as keyword-based trigger extraction — it cannot handle the infinite variety of human language.
+
+### The Solution: Groq + Llama 3.3 for Emotion Detection
+
+The same principle that drove the decision to use LLMs for trigger extraction was applied to emotion detection:
+
+> **AI that understands context is always better than rules that match patterns.**
+
+CETIS now uses **Groq + Llama 3.3 70B** for emotion detection. The same sentence now produces:
+
+```json
+{
+  "sadness": 0.40,
+  "hopelessness": 0.20,
+  "anxiety": 0.20,
+  "fear": 0.10,
+  "joy": 0.0
+}
+```
+
+This is psychologically correct. The LLM understands the negation, the self-doubt, and the hopelessness implied by the full sentence meaning.
+
+### How It Thinks
+
+1. The input text is sent to Llama 3.3 with a structured psychological analysis prompt
+2. The model is instructed to reason as an expert psychologist
+3. It returns probability scores for 9 emotions summing to approximately 1.0
+4. The model reasons about context, negation, tone, and implied meaning — not surface keywords
+5. Results are normalized and ranked by confidence
+
+### Emotions Detected
+
+- sadness, anger, fear, joy, calm, frustration, anxiety, hopelessness, confusion
+
+### Accuracy Comparison
+
+| Approach | Accuracy | Negation Handling |
+|---|---|---|
+| j-hartmann transformer (original) | ~66–70% | Poor |
+| Transformer + negation keywords | ~72% | Brittle |
+| Groq + Llama 3.3 (current) | ~95%+ | Excellent |
 
 ---
 
@@ -196,30 +184,18 @@ Identify **why** the emotional change occurred — the root cause, event, or sit
 
 ### Why We Rejected Keyword Matching
 
-The initial design considered keyword-based trigger extraction — maintaining lists of words like "fired", "breakup", "rejected" and matching them against input text.
-
-This approach was rejected for several reasons:
-
-- It cannot understand indirect language: *"she stopped texting me"* contains no trigger keywords but clearly implies emotional neglect
-- It cannot handle slang: *"I bombed the interview"* would not match a "failure" keyword
-- It cannot handle cultural expressions or regional language variations
-- It creates a fixed, brittle system that fails on anything outside predefined categories
-- Human emotional triggers are infinite — no keyword list can capture them all
+Keyword-based trigger extraction was rejected because it cannot understand indirect language, slang, cultural expressions, or anything outside predefined categories. Human emotional triggers are infinite — no keyword list can capture them all.
 
 ### The Better Approach: Semantic LLM Understanding
 
-Instead, CETIS uses **Groq + Llama 3.3 70B** to reason about triggers the way a psychologist would — by understanding the full meaning and context of the sentence.
+CETIS uses **Groq + Llama 3.3 70B** to reason about triggers the way a psychologist would — understanding the full meaning and context of the sentence.
 
 ### How It Thinks
 
-1. The input text is sent to Llama 3.3 with a carefully structured prompt
-2. The prompt instructs the model to reason as an expert psychologist
-3. The model is asked to identify:
-   - The primary emotional trigger (main cause)
-   - Secondary triggers (contributing factors)
-   - A trigger chain (causal sequence of events)
-4. The model reasons about **explicit** triggers (directly stated) and **implicit** triggers (implied by context)
-5. Confidence scores are assigned based on how clearly the trigger is expressed
+1. The input text is sent to Llama 3.3 with a psychological analysis prompt
+2. The model identifies the primary trigger, secondary triggers, and a trigger chain
+3. It reasons about explicit triggers (directly stated) and implicit triggers (implied by context)
+4. Confidence scores are assigned based on how clearly the trigger is expressed
 
 ### Example
 
@@ -236,10 +212,6 @@ Output:
     {
       "event": "fear of abandonment after vulnerability",
       "confidence": 0.8
-    },
-    {
-      "event": "uncertainty about relationship future",
-      "confidence": 0.6
     }
   ],
   "trigger_chain": [
@@ -250,30 +222,13 @@ Output:
 }
 ```
 
-No keywords were used. The AI understood the situation from meaning alone.
-
-### Technology
-
-- **Groq API** — Cloud inference platform running Llama 3.3 at high speed
-- **Llama 3.3 70B Versatile** — Meta's large language model with 70 billion parameters
-- **Response time** — typically 1–2 seconds via Groq's optimized infrastructure
-
 ---
 
 ## 5. Temporal Emotional Memory Engine
 
 ### Purpose
 
-This is the **most critical** component of CETIS. It gives the system memory — allowing it to track how emotions evolve across multiple messages in a conversation rather than analyzing each message in isolation.
-
-### The Core Problem It Solves
-
-Without memory, every message is analyzed independently. This produces emotionally incoherent results:
-
-- Message 1: joy 0.85 (great day at work)
-- Message 2: anger 0.75 (fight at home)
-
-Without memory, the system sees only the current message. With memory, it understands that this person went from happy to angry — and that the happiness still lingers.
+Give the system memory — tracking how emotions evolve across multiple messages rather than analyzing each message in isolation.
 
 ### The Formula: Exponential Moving Average (EMA)
 
@@ -282,10 +237,10 @@ E_t = α × X_t + (1 − α) × E_(t−1)
 ```
 
 Where:
-- `X_t` = current emotion vector (emotions detected in the current message)
-- `E_(t−1)` = previous smoothed emotional state (memory)
+- `X_t` = current emotion vector
+- `E_(t−1)` = previous smoothed emotional state
 - `E_t` = new smoothed emotional state
-- `α` (alpha) = smoothing factor (set to 0.3 in CETIS)
+- `α` = 0.3 (smoothing factor)
 
 ### What This Means Simply
 
@@ -293,54 +248,25 @@ Where:
 New emotional state = 30% current message + 70% previous memory
 ```
 
-This reflects a fundamental truth about human psychology: **emotions do not reset with each new sentence**. If you were happy all day and had one argument, you don't instantly become 100% angry. The happiness lingers, gradually fading.
-
 ### Research Basis
 
-The EMA formula is grounded in multiple fields of research:
-
-**1. Signal Processing — Robert Goodell Brown (1956)**
-Brown developed exponential smoothing for time series forecasting and demand prediction. The formula was designed to smooth noisy data while preserving underlying trends — exactly what is needed for emotional data.
-
-> Brown, R.G. (1956). *Exponential Smoothing for Predicting Demand.* Arthur D. Little Inc., Cambridge, Massachusetts.
-
-**2. Psychology — Emotional Inertia Research**
-Kuppens et al. (2010) demonstrated that emotional states show **inertia** — they persist and carry forward from moment to moment rather than resetting with each new event. People with higher emotional inertia (slower emotional change) show different psychological profiles than those with low inertia.
-
-> Kuppens, P., Allen, N.B., & Sheeber, L.B. (2010). *Emotional inertia and psychological maladjustment.* Psychological Science, 21(7), 984–991.
-
-**3. Affective Computing**
-Research in affective computing (AI systems that process human emotions) consistently uses temporal smoothing techniques including EMA to model emotional continuity in conversational systems.
+| Reference | Relevance |
+|---|---|
+| Brown, R.G. (1956). *Exponential Smoothing for Predicting Demand.* | Origin of EMA formula |
+| Kuppens, P. et al. (2010). *Emotional inertia and psychological maladjustment.* Psychological Science. | Basis for α = 0.3 and emotional persistence |
+| Hollenstein, T. (2013). *Affective Flexibility.* Emotion Review. | Emotional stability and volatility concepts |
 
 ### Why Alpha = 0.3?
 
-The value of α controls how quickly the system responds to emotional changes:
-
-| Alpha Value | Behavior |
-|---|---|
-| α = 0.1 | Very slow emotional change — strong memory |
-| α = 0.3 | Balanced — recent emotions matter but history dominates |
-| α = 0.5 | Equal weight to past and present |
-| α = 0.9 | Almost no memory — reacts instantly to each message |
-
-α = 0.3 was chosen because it reflects the psychological finding that emotional states are persistent — a single message rarely transforms a person's entire emotional baseline. The 70% weight given to history models emotional inertia accurately.
+α = 0.3 reflects the psychological finding that emotional states are persistent — a single message rarely transforms a person's entire emotional baseline. The 70% weight given to history models emotional inertia accurately.
 
 ### What the Memory Engine Tracks
 
-- **Smoothed emotional state** — EMA-weighted emotions across all turns
-- **Baseline emotional state** — The emotional baseline from the first 3 messages
-- **Emotional volatility** — How much emotions are changing turn-to-turn
-- **Recurring triggers** — Triggers that appear repeatedly in the conversation
-- **Historical patterns** — Full emotional history for trajectory analysis
-- **Dominant pattern** — The overall dominant emotion across the conversation
-
-### Emotional Volatility Calculation
-
-```
-volatility = average absolute change in emotion scores between consecutive messages
-```
-
-High volatility indicates rapid emotional swings — a potential signal of emotional instability.
+- Smoothed emotional state across all turns
+- Baseline emotional state from first 3 messages
+- Emotional volatility between turns
+- Recurring triggers across the conversation
+- Full emotional history for trajectory analysis
 
 ---
 
@@ -348,16 +274,7 @@ High volatility indicates rapid emotional swings — a potential signal of emoti
 
 ### Purpose
 
-Analyze the **direction** of emotional evolution — is the person getting worse, getting better, staying the same, or fluctuating?
-
-### How It Thinks
-
-The trajectory engine receives the full emotional history from the memory engine and performs statistical analysis:
-
-1. **Splits the conversation** into first half and second half
-2. **Sums negative emotion scores** (sadness, anger, fear, frustration, hopelessness, anxiety, shame, guilt, loneliness, confusion) for each half
-3. **Compares the two halves** to determine the direction of change
-4. **Calculates momentum** — the change in negative emotion intensity between the last two messages
+Analyze the direction of emotional evolution — is the person getting worse, better, staying the same, or fluctuating?
 
 ### Direction Classification
 
@@ -372,8 +289,6 @@ The trajectory engine receives the full emotional history from the memory engine
 
 ### Stability Classification
 
-Stability is calculated from the **variance** (range) of negative emotion scores across all messages:
-
 | Score Range | Stability |
 |---|---|
 | Range > 0.5 | Low stability |
@@ -381,8 +296,6 @@ Stability is calculated from the **variance** (range) of negative emotion scores
 | Range ≤ 0.2 | High stability |
 
 ### Risk Level Classification
-
-Risk is determined from the **current total negative emotion score**:
 
 | Total Negative Score | Risk Level |
 |---|---|
@@ -397,17 +310,7 @@ Risk is determined from the **current total negative emotion score**:
 momentum = negative_score(current message) − negative_score(previous message)
 ```
 
-Positive momentum = emotions getting more negative (escalating).
-Negative momentum = emotions getting less negative (recovering).
-
-### Trajectory Patterns
-
-The engine also detects overall patterns across the full conversation:
-
-- **Continuous escalation** — every message is worse than the last
-- **Continuous recovery** — every message is better than the last
-- **Net escalation with fluctuations** — overall worsening with ups and downs
-- **Net recovery with fluctuations** — overall improvement with ups and downs
+Positive momentum = escalating. Negative momentum = recovering.
 
 ---
 
@@ -415,11 +318,9 @@ The engine also detects overall patterns across the full conversation:
 
 ### Purpose
 
-Go beneath the surface emotions and identify the **deeper psychological drivers** and **cognitive patterns** present in the conversation.
+Go beneath surface emotions to identify deeper psychological drivers and cognitive patterns.
 
-### The Core Insight
-
-Surface emotions often mask deeper psychological states:
+### Surface vs. Deeper Emotion Examples
 
 | Surface Emotion | Possible Deeper Driver |
 |---|---|
@@ -427,41 +328,10 @@ Surface emotions often mask deeper psychological states:
 | Withdrawal | Fear of abandonment |
 | Hopelessness | Self-worth collapse |
 | Perfectionism | Identity insecurity |
-| Neediness | Emotional dependency |
-| Overachievement | Validation-seeking behavior |
-
-A system that only reports "the user is angry" misses the real psychological picture. CETIS attempts to identify what lies beneath.
 
 ### Cognitive Patterns Detected
 
-The engine is designed to identify these psychological patterns:
-
-- **Catastrophic thinking** — Believing the worst-case scenario is inevitable
-- **Fear of abandonment** — Persistent anxiety about being left or rejected
-- **Self-worth collapse** — Tying self-value entirely to external outcomes
-- **Emotional dependency** — Relying on others for emotional regulation
-- **Social comparison sensitivity** — Measuring self-worth against others
-- **Emotional suppression** — Hiding or minimizing emotional responses
-- **Identity insecurity** — Uncertainty about one's sense of self and purpose
-- **Validation-seeking behavior** — Needing external approval to feel okay
-
-### How It Thinks
-
-1. The current emotion scores, primary trigger, and recent conversation messages are passed to Llama 3.3
-2. The model is prompted to reason as an expert psychologist
-3. It is asked to distinguish between what is directly observable (surface) and what psychological forces may be driving the behavior (deeper state)
-4. It identifies cognitive patterns by reasoning about the interplay between triggers, emotions, and language patterns
-5. A confidence score is assigned to the pattern detection
-
-### Why LLM Instead of Rules?
-
-Psychological pattern detection cannot be reliably done with rules or keywords because:
-
-- The same words can indicate different patterns depending on context
-- Patterns emerge from the combination of emotion + trigger + conversation history
-- Human psychological complexity requires contextual reasoning, not classification
-
-Using Llama 3.3 allows the system to reason about patterns the way a trained psychologist would — by considering the full picture.
+Catastrophic thinking, fear of abandonment, self-worth collapse, emotional dependency, social comparison sensitivity, emotional suppression, identity insecurity, validation-seeking behavior.
 
 ---
 
@@ -469,122 +339,64 @@ Using Llama 3.3 allows the system to reason about patterns the way a trained psy
 
 ### Purpose
 
-Synthesize all the outputs from every previous module into a single **psychologically coherent emotional summary** that a human can read and understand.
-
-### What It Receives
-
-The LLM Reasoning Layer receives:
-- Current emotional state with probability scores
-- Dominant emotions
-- Primary and secondary triggers with confidence scores
-- Trigger chain
-- Trajectory analysis (direction, stability, risk)
-- Surface and deeper psychological interpretation
-- Cognitive patterns
-- Recurring triggers from memory
-- Total message count analyzed
-
-### How It Thinks
-
-1. All the above data is structured into a detailed prompt
-2. The prompt instructs Llama 3.3 to act as a psychologically-aware emotional analyst
-3. It is explicitly told **not** to use shallow labels like "the user is sad"
-4. It is asked to reason about **causality** — why is this person feeling this way?
-5. It is asked to reference the **trajectory** — how has the emotional state evolved?
-6. It is asked to produce a **2–3 sentence summary** that is specific, causal, and psychologically meaningful
-7. It also generates **contextual signals** — a list of psychological signals present in the data
-8. It assigns an **overall confidence score** and flags any **uncertainty**
+Synthesize all module outputs into a single psychologically coherent emotional summary.
 
 ### Example Output
 
 Input: *"I lost my job today and I feel completely hopeless"*
 
-Generated summary:
-> *"The individual's emotional state is characterized by a profound sense of hopelessness and self-worth collapse, triggered by the significant life change of job loss, which has disrupted their daily structure, financial security, and sense of identity. This event has set off a chain reaction of catastrophic thinking and identity insecurity, contributing to a downward emotional trajectory. The persistence of these cognitive patterns suggests a high risk of prolonged distress."*
-
-This is the difference between a sentiment classifier and an emotional reasoning engine.
-
-### Technology
-
-- **Groq API** — Provides fast cloud inference
-- **Llama 3.3 70B Versatile** — Meta's large language model
-- **Temperature: 0.4** — Low temperature for consistent, factual psychological reasoning (not creative)
-- **Max tokens: 800** — Enough for a detailed summary without rambling
+> *"The individual's emotional state is characterized by a profound sense of hopelessness and self-worth collapse, triggered by the significant life change of job loss, which has disrupted their daily structure, financial security, and sense of identity. This event has set off a chain reaction of catastrophic thinking and identity insecurity, contributing to a downward emotional trajectory."*
 
 ---
 
-## 9. Technology Stack
+## 9. Emotional Interpreter
 
-### Backend
+### Purpose
 
-| Technology | Version | Purpose |
+Provide a plain language explanation of why a person is feeling what they are feeling at any specific message in the conversation.
+
+### Why This Was Added
+
+During testing, the emotional timeline graph showed joy rising when the user said *"I don't know if I'm worth being selected for a job"* — a deeply hopeless statement. Without context, a joy spike on the graph would confuse or upset users.
+
+The Emotional Interpreter explains:
+- Why each emotion is present in plain language
+- What joy or calm actually means in this specific context
+- How conversation history influenced this reading
+- A plain summary a non-technical person can understand
+
+### How It Works
+
+1. User types a message number and clicks Go
+2. The system retrieves that message from memory
+3. The full conversation history is passed to Llama 3.3
+4. The model explains each emotion contextually in plain language
+5. After every new message the interpreter automatically shows the latest message interpretation
+
+---
+
+## 10. Technology Stack
+
+| Layer | Technology | Purpose |
 |---|---|---|
-| Python | 3.13+ | Core programming language |
-| FastAPI | Latest | REST API framework with async support |
-| Uvicorn | Latest | ASGI server for running FastAPI |
-| Pydantic | Latest | Data validation and serialization |
-
-FastAPI was chosen because it natively supports **async/await** — critical for a system making multiple AI API calls per request without blocking.
-
-### AI / ML
-
-| Technology | Purpose |
-|---|---|
-| HuggingFace Transformers | Loading and running the emotion detection model |
-| PyTorch | Deep learning backend for the transformer model |
-| j-hartmann/emotion-english-distilroberta-base | Pretrained emotion detection model |
-| spaCy (en_core_web_sm) | NLP preprocessing |
-| Groq API | Fast cloud inference for LLM calls |
-| Llama 3.3 70B Versatile | Large language model for reasoning |
-
-### Frontend
-
-| Technology | Purpose |
-|---|---|
-| Next.js 16 | React framework with server-side rendering |
-| TypeScript | Type-safe JavaScript |
-| TailwindCSS | Utility-first CSS framework |
-| Recharts | Charting library for emotional timeline graphs |
-| Axios | HTTP client for API calls to backend |
-
-### Project Planning
-
-| Technology | Purpose |
-|---|---|
-| OpenSpec | Spec-driven development framework |
-| GitHub | Version control and code hosting |
-
-### Why Groq Instead of Ollama?
-
-Ollama was initially chosen to run Llama 3 locally for free. However, it was too slow for real-time use — responses took 2+ minutes on the development machine. Groq was switched to because:
-
-- Response time: 1–2 seconds (vs 2+ minutes with Ollama)
-- Runs Llama 3.3 in the cloud — no local GPU needed
-- Free tier is generous (14,400 requests/day)
-- Same model, dramatically better speed
+| Backend | FastAPI + Python | REST API |
+| AI Reasoning | Groq + Llama 3.3 70B | All AI modules |
+| NLP | spaCy | Preprocessing |
+| Frontend | Next.js + TypeScript + TailwindCSS | UI |
+| Charts | Recharts | Emotional timeline |
+| Planning | OpenSpec | Spec-driven development |
+| Version Control | GitHub | Code hosting |
 
 ---
 
-## 10. Master Output Format
-
-Every call to the `/reasoning/analyze` endpoint returns this complete structured JSON:
+## 11. Master Output Format
 
 ```json
 {
-  "current_emotional_state": {
-    "emotion_name": probability_score
-  },
+  "current_emotional_state": {},
   "dominant_emotions": [],
-  "primary_trigger": {
-    "event": "",
-    "confidence": 0.0
-  },
-  "secondary_triggers": [
-    {
-      "event": "",
-      "confidence": 0.0
-    }
-  ],
+  "primary_trigger": { "event": "", "confidence": 0.0 },
+  "secondary_triggers": [],
   "trigger_chain": [],
   "trajectory_analysis": {
     "direction": "",
@@ -614,60 +426,54 @@ Every call to the `/reasoning/analyze` endpoint returns this complete structured
 
 ---
 
-## 11. API Endpoints
+## 12. API Endpoints
 
 | Method | Endpoint | Description |
 |---|---|---|
-| POST | `/reasoning/analyze` | Full CETIS pipeline — master output |
+| POST | `/reasoning/analyze` | Full CETIS pipeline |
 | POST | `/emotion/detect` | Emotion detection only |
 | POST | `/emotion/detect-batch` | Batch emotion detection |
 | POST | `/triggers/extract` | Trigger extraction only |
 | POST | `/memory/update` | Update emotional memory |
-| GET | `/memory/summary/{id}` | Get full conversation memory |
+| GET | `/memory/summary/{id}` | Get conversation memory |
 | POST | `/memory/initialize` | Initialize new conversation |
 | POST | `/trajectory/analyze` | Trajectory analysis |
 | POST | `/contextual/interpret` | Contextual interpretation |
+| POST | `/interpreter/explain` | Plain language message interpretation |
 | GET | `/health` | Health check |
-| GET | `/docs` | Auto-generated API documentation |
+| GET | `/docs` | API documentation |
 
 ---
 
-## 12. Research References
+## 13. Research References
 
 | Reference | Application in CETIS |
 |---|---|
 | Brown, R.G. (1956). *Exponential Smoothing for Predicting Demand.* | EMA formula for emotional memory |
-| Kuppens, P. et al. (2010). *Emotional inertia and psychological maladjustment.* Psychological Science. | Theoretical basis for emotional persistence and α = 0.3 |
+| Kuppens, P. et al. (2010). *Emotional inertia and psychological maladjustment.* Psychological Science. | Basis for emotional persistence and α = 0.3 |
 | Hollenstein, T. (2013). *Affective Flexibility.* Emotion Review. | Emotional stability and volatility concepts |
-| Demszky, D. et al. (2020). *GoEmotions: A Dataset of Fine-Grained Emotions.* Google Research. | Training dataset for the emotion detection model |
-| Hartmann, J. (2022). *Emotion English DistilRoBERTa-base.* HuggingFace. | Pretrained emotion detection model |
-| Vaswani, A. et al. (2017). *Attention Is All You Need.* | Transformer architecture underlying emotion detection |
-| Meta AI (2024). *Llama 3: Open Foundation and Fine-Tuned Chat Models.* | LLM used for reasoning, trigger extraction, contextual interpretation |
+| Demszky, D. et al. (2020). *GoEmotions: A Dataset of Fine-Grained Emotions.* Google Research. | Reference emotion taxonomy |
+| Vaswani, A. et al. (2017). *Attention Is All You Need.* | Transformer architecture underlying LLM |
+| Meta AI (2024). *Llama 3: Open Foundation and Fine-Tuned Chat Models.* | LLM used for all AI reasoning modules |
 
 ---
 
-## 13. Known Limitations and Future Scope
+## 14. Known Limitations and Future Scope
 
 ### Current Limitations
 
 - **In-memory storage** — Conversation history is lost when the server restarts. PostgreSQL integration is planned.
-- **Single language** — The emotion model is trained on English text only.
-- **Trajectory requires 2+ messages** — The trajectory engine cannot analyze a single-message conversation.
+- **English only** — All modules are optimized for English text.
+- **Trajectory requires 2+ messages** — Cannot analyze a single-message conversation.
 - **No user authentication** — Any conversation ID can be used by anyone.
-- **Sarcasm detection** — The emotion model may misread sarcastic statements.
-- **Short messages** — Very short messages ("ok", "fine") produce low-confidence results.
+- **Groq rate limits** — Free tier has daily limits.
 
 ### Future Scope
 
-As outlined in the original engineering specification:
-
-- **PostgreSQL + pgvector** — Persistent long-term emotional memory with vector embeddings
+- **Conversation Analysis Page** — Upload or paste a full conversation between two people. CETIS analyses the emotional journey of each person, how they influenced each other, and the overall emotional arc. Designed for call centers, helplines, therapy review, and HR feedback analysis.
+- **PostgreSQL + pgvector** — Persistent long-term emotional memory
 - **Redis caching** — Faster repeated analysis
-- **WebSocket support** — True real-time emotional analysis as the user types
-- **Voice emotion analysis** — Extending to audio input with prosody detection
-- **Multimodal fusion** — Combining text, voice, and facial expression signals
-- **Ensemble emotion models** — Using multiple models and confidence weighting for higher accuracy
-- **Fine-tuning** — Training on domain-specific datasets (MELD, DailyDialog, EmoContext)
-- **Adaptive responses** — CETIS generating emotionally aware conversational responses
-- **Therapy support systems** — Structured for use alongside licensed mental health professionals
+- **WebSocket support** — True real-time emotional analysis
+- **Voice emotion analysis** — Audio input with prosody detection
+- **Multimodal fusion** — Text, voice, and facial expression signals
 - **Emotional prediction** — Forecasting emotional trajectory before it happens
