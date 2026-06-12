@@ -254,7 +254,7 @@ New emotional state = 30% current message + 70% previous memory
 |---|---|
 | Brown, R.G. (1956). *Exponential Smoothing for Predicting Demand.* | Origin of EMA formula |
 | Kuppens, P. et al. (2010). *Emotional inertia and psychological maladjustment.* Psychological Science. | Basis for α = 0.3 and emotional persistence |
-| Hollenstein, T. (2013). *Affective Flexibility.* Emotion Review. | Emotional stability and volatility concepts |
+| Hollenstein, T., Lichtwarck-Aschoff, A., & Potworowski, G. (2013). *A model of socioemotional flexibility at three time scales.* Emotion Review, 5(4), 397–405. | Emotional stability and volatility concepts |
 
 ### Why Alpha = 0.3?
 
